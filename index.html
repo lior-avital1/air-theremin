@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Theremin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <video id="video" playsinline muted></video>
+  <canvas id="bg"></canvas>
+  <canvas id="fx"></canvas>
+
+  <header class="top">
+    <div class="brand">
+      <h1>Air Theremin</h1>
+      <p id="status">Loading hand model…</p>
+    </div>
+    <div class="controls">
+      <label>Sound
+        <select id="wave">
+          <option value="sine">Sine</option>
+          <option value="triangle" selected>Triangle</option>
+          <option value="sawtooth">Sawtooth</option>
+          <option value="square">Square</option>
+        </select>
+      </label>
+      <label>Scale
+        <select id="scale">
+          <option value="smooth" selected>Smooth glide</option>
+          <option value="chromatic">Chromatic</option>
+          <option value="major">C major</option>
+          <option value="pentatonic">A minor pentatonic</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="showCam" checked> Camera</label>
+    </div>
+  </header>
+
+  <div class="meter" aria-hidden="true">
+    <div id="meterFill"></div>
+    <span>VOL</span>
+  </div>
+
+  <div class="readout">
+    <div id="note">–</div>
+    <div id="freq">0 Hz</div>
+  </div>
+
+  <div id="intro" class="intro">
+    <div class="card">
+      <h2>Air Theremin</h2>
+      <p>Play music with your hands. Your camera never leaves this device.</p>
+      <ul>
+        <li><b>Right hand</b> up and down: <b>pitch</b></li>
+        <li><b>Left hand</b> up and down: <b>volume</b></li>
+        <li><b>Pinch</b> with your right hand: <b>vibrato</b></li>
+        <li><b>Open or close</b> your left hand: <b>tone brightness</b></li>
+      </ul>
+      <button id="start" disabled>Loading…</button>
+      <p class="hint">No camera? Click and drag anywhere to play with the mouse.</p>
+      <p id="error" class="error"></p>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
