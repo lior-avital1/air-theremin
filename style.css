@@ -86,6 +86,67 @@ canvas {
   font: inherit;
 }
 
+.controls button,
+.tutorial button {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--fg);
+  background: #15152a;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.controls button:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- Tutorial card ---------- */
+.tutorial {
+  position: fixed;
+  left: 50%;
+  bottom: 130px;
+  transform: translateX(-50%);
+  width: min(420px, calc(100% - 32px));
+  padding: 16px 18px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+  text-align: center;
+  z-index: 5;
+}
+
+.tutorial.hidden { display: none; }
+
+.tut-step {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tut-title { margin-top: 4px; font-size: 1.25rem; font-weight: 700; }
+.tutorial[data-zone="pitch"] .tut-title { color: var(--pitch); }
+.tutorial[data-zone="volume"] .tut-title { color: var(--volume); }
+.tutorial[data-zone="done"] .tut-title { color: #7dffa8; }
+
+.tut-text { margin-top: 6px; font-size: 0.9rem; color: var(--muted); line-height: 1.4; }
+
+.tut-progress {
+  height: 4px;
+  margin: 12px 0 10px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+#tutBar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--pitch), var(--volume));
+  transition: width 80ms linear;
+}
+
 /* ---------- Volume meter ---------- */
 .meter {
   position: fixed;

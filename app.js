@@ -50,9 +50,17 @@ const ui = {
   wave: $("wave"),
   scale: $("scale"),
   showCam: $("showCam"),
+  psychedelic: $("psychedelic"),
   meterFill: $("meterFill"),
   note: $("note"),
   freq: $("freq"),
+  tutorialBtn: $("tutorialBtn"),
+  tutorial: $("tutorial"),
+  tutStep: $("tutStep"),
+  tutTitle: $("tutTitle"),
+  tutText: $("tutText"),
+  tutBar: $("tutBar"),
+  tutSkip: $("tutSkip"),
 };
 
 // ---------- Small helpers ----------
@@ -228,7 +236,7 @@ function resize() {
   view.dpr = Math.min(window.devicePixelRatio || 1, 2);
   view.w = window.innerWidth;
   view.h = window.innerHeight;
-  for (const c of [bg, fx]) {
+  for (const c of [bg, fx, trail]) {
     c.width = Math.round(view.w * view.dpr);
     c.height = Math.round(view.h * view.dpr);
   }
@@ -311,16 +319,206 @@ function updateControl(now) {
   });
 }
 
+// ---------- Tutorial ----------
+
+const TUTORIAL_KEY = "air-theremin-tutorial-done";
+
+// Each step highlights a zone on screen and completes when its check passes.
+const TUTORIAL_STEPS = [
+  {
+    zone: "pitch", gesture: "hold",
+    title: "Raise your right hand",
+    text: "Hold it up inside the blue box, palm facing the camera, about an arm's length away.",
+    check: (now) => tutorial.hold(!!pitchHand, now, 800),
+  },
+  {
+    zone: "pitch", gesture: "sweep",
+    title: "Move it up and down",
+    text: "Higher hand, higher note. Sweep slowly from the bottom of the box to the top.",
+    check: () => tutorial.sweep(pitchHand ? control.pitchNorm : null, 0.5),
+  },
+  {
+    zone: "volume", gesture: "hold",
+    title: "Now raise your left hand",
+    text: "Keep your right hand up and bring your left hand into the pink box.",
+    check: (now) => tutorial.hold(!!volumeHand, now, 800),
+  },
+  {
+    zone: "volume", gesture: "sweep",
+    title: "Your left hand sets the volume",
+    text: "Lift it to get louder, lower it to fade out.",
+    check: () => tutorial.sweep(volumeHand ? control.volume : null, 0.5),
+  },
+  {
+    zone: "pitch", gesture: "pinch",
+    title: "Pinch for vibrato",
+    text: "Touch your right thumb and index finger together to make the note wobble.",
+    check: (now) => tutorial.hold(!!pitchHand && control.vibrato > 0.6, now, 500),
+  },
+];
+
+const tutorial = {
+  active: false,
+  step: 0,
+  progress: 0,
+  holdSince: null,
+  lo: Infinity,
+  hi: -Infinity,
+  finishedAt: null,
+
+  // Condition must stay true for `ms` milliseconds.
+  hold(cond, now, ms) {
+    if (!cond) { this.holdSince = null; this.progress = 0; return false; }
+    this.holdSince ??= now;
+    this.progress = clamp((now - this.holdSince) / ms);
+    return this.progress >= 1;
+  },
+
+  // Value must cover at least `span` of its 0..1 range.
+  sweep(value, span) {
+    if (value == null) return false;
+    this.lo = Math.min(this.lo, value);
+    this.hi = Math.max(this.hi, value);
+    this.progress = clamp((this.hi - this.lo) / span);
+    return this.progress >= 1;
+  },
+};
+
+function startTutorial() {
+  Object.assign(tutorial, { active: true, finishedAt: null });
+  goToStep(0);
+  ui.tutorial.classList.remove("hidden");
+}
+
+function goToStep(i) {
+  Object.assign(tutorial, { step: i, progress: 0, holdSince: null, lo: Infinity, hi: -Infinity });
+  const step = TUTORIAL_STEPS[i];
+  ui.tutorial.dataset.zone = step.zone;
+  ui.tutStep.textContent = `Step ${i + 1} of ${TUTORIAL_STEPS.length}`;
+  ui.tutTitle.textContent = step.title;
+  ui.tutText.textContent = step.text;
+  ui.tutSkip.textContent = "Skip tutorial";
+}
+
+function finishTutorial(now) {
+  tutorial.finishedAt = now;
+  tutorial.progress = 1;
+  ui.tutorial.dataset.zone = "done";
+  ui.tutStep.textContent = "Tutorial complete";
+  ui.tutTitle.textContent = "You're ready. Play away!";
+  ui.tutText.textContent = "Replay this anytime with “How to play”.";
+  ui.tutSkip.textContent = "Close";
+  try { localStorage.setItem(TUTORIAL_KEY, "1"); } catch {}
+}
+
+function closeTutorial() {
+  tutorial.active = false;
+  ui.tutorial.classList.add("hidden");
+  try { localStorage.setItem(TUTORIAL_KEY, "1"); } catch {}
+}
+
+function updateTutorial(now) {
+  if (!tutorial.active) return;
+  if (tutorial.finishedAt != null) {
+    if (now - tutorial.finishedAt > 2500) closeTutorial();
+    return;
+  }
+  if (TUTORIAL_STEPS[tutorial.step].check(now)) {
+    if (tutorial.step + 1 < TUTORIAL_STEPS.length) goToStep(tutorial.step + 1);
+    else finishTutorial(now);
+  }
+  ui.tutBar.style.width = `${Math.round(tutorial.progress * 100)}%`;
+}
+
+function tutorialWasSeen() {
+  try { return localStorage.getItem(TUTORIAL_KEY) === "1"; } catch { return false; }
+}
+
+// Draws the target box for the current step plus a "ghost hand" showing the motion.
+function drawTutorialZone(c, now) {
+  if (!tutorial.active || tutorial.finishedAt != null) return;
+  const step = TUTORIAL_STEPS[tutorial.step];
+  const isPitch = step.zone === "pitch";
+  const rgb = isPitch ? "94, 231, 255" : "255, 94, 200";
+  const occupied = isPitch ? !!pitchHand : !!volumeHand;
+
+  // Keep the box clear of the header and the tutorial card.
+  const top = Math.max(view.oy + PLAY_TOP * view.dh, 90);
+  const bottom = Math.max(top + 120, Math.min(view.oy + PLAY_BOTTOM * view.dh, view.h - 300));
+  const width = Math.min(view.w * 0.34, 300);
+  const cx = view.w * (isPitch ? 0.75 : 0.25);
+  const x = cx - width / 2;
+  const h = bottom - top;
+  const pulse = 0.5 + 0.3 * Math.sin(now / 250);
+
+  c.save();
+  c.fillStyle = `rgba(${rgb}, ${occupied ? 0.12 : 0.05})`;
+  c.strokeStyle = `rgba(${rgb}, ${occupied ? 0.9 : pulse})`;
+  c.lineWidth = 2;
+  if (!occupied) {
+    c.setLineDash([10, 8]);
+    c.lineDashOffset = -now / 40;
+  }
+  c.beginPath();
+  c.roundRect(x, top, width, h, 18);
+  c.fill();
+  c.stroke();
+  c.setLineDash([]);
+
+  c.fillStyle = `rgba(${rgb}, 0.9)`;
+  c.font = "600 13px system-ui, sans-serif";
+  c.textAlign = "center";
+  c.fillText(isPitch ? "RIGHT HAND · PITCH" : "LEFT HAND · VOLUME", cx, top - 10);
+  if (step.gesture === "sweep") {
+    c.font = "12px system-ui, sans-serif";
+    c.fillText(isPitch ? "▲ higher" : "▲ louder", cx, top + 22);
+    c.fillText(isPitch ? "▼ lower" : "▼ quieter", cx, bottom - 12);
+  }
+
+  // Ghost hand demonstrating the gesture.
+  let gy = top + h / 2;
+  let size = Math.min(72, h * 0.4);
+  let glyph = "✋";
+  if (step.gesture === "hold") gy += Math.sin(now / 400) * 6;
+  if (step.gesture === "sweep") gy += Math.sin(now / 650) * (h / 2 - 50);
+  if (step.gesture === "pinch") {
+    glyph = Math.sin(now / 350) > 0 ? "🤏" : "✋";
+    size *= 1.1;
+  }
+  c.globalAlpha = occupied ? 0.3 : 0.75;
+  c.font = `${size}px system-ui, "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+  c.textBaseline = "middle";
+  c.translate(cx, gy);
+  if (!isPitch) c.scale(-1, 1); // mirror the emoji so it reads as a left hand
+  c.fillText(glyph, 0, 0);
+  c.restore();
+}
+
 // ---------- Drawing: background layer (camera, guides, skeletons) ----------
 
 function drawBackground() {
   const c = bgCtx;
+  const psy = psychedelic();
   c.fillStyle = "#05050f";
   c.fillRect(0, 0, view.w, view.h);
 
+  if (psy) {
+    // Color wash that cycles hue and glows brighter as the sound gets louder.
+    const cx = view.w / 2;
+    const cy = view.h / 2;
+    const h = (pitchHue(sound.displayMidi) + vis.hueShift) % 360;
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
+    g.addColorStop(0, `hsl(${h}, 80%, ${5 + vis.energy * 18}%)`);
+    g.addColorStop(0.55, `hsl(${(h + 120) % 360}, 70%, ${3 + vis.energy * 8}%)`);
+    g.addColorStop(1, "#05050f");
+    c.fillStyle = g;
+    c.fillRect(0, 0, view.w, view.h);
+  }
+
   if (cameraOn && ui.showCam.checked && video.readyState >= 2) {
     c.save();
-    c.globalAlpha = 0.35;
+    c.globalAlpha = psy ? 0.25 + vis.energy * 0.25 : 0.35;
+    if (psy) c.filter = `hue-rotate(${vis.hueShift}deg) saturate(${2 + vis.energy * 3}) contrast(1.25)`;
     c.translate(view.w, 0);
     c.scale(-1, 1);
     c.drawImage(video, view.ox, view.oy, view.dw, view.dh);
@@ -328,6 +526,7 @@ function drawBackground() {
   }
 
   drawPitchGuide(c);
+  drawTutorialZone(c, performance.now());
   if (pitchHand) drawSkeleton(c, pitchHand, "94, 231, 255");
   if (volumeHand) drawSkeleton(c, volumeHand, "255, 94, 200");
 }
@@ -382,97 +581,185 @@ function drawSkeleton(c, hand, rgb) {
   c.restore();
 }
 
-// ---------- Drawing: audio-reactive effects layer (with trails) ----------
+// ---------- Drawing: audio-reactive effects layer ----------
 
-function drawEffects(now) {
-  const c = fxCtx;
+// Loudness-driven state shared by both layers.
+const vis = { energy: 0, avg: 0, bass: 0, hueShift: 0, spin: 0, lastRing: 0, rings: [] };
+
+const KALEIDO_ARMS = 6;
+const MAX_PARTICLES = 450;
+
+// Off-screen copy of the previous frame, redrawn zoomed and rotated for the tunnel effect.
+const trail = document.createElement("canvas");
+const trailCtx = trail.getContext("2d");
+
+const psychedelic = () => ui.psychedelic.checked;
+
+// Measure what is actually coming out of the speakers (including the echo tail).
+function measureAudio(now) {
   const { analyser, freqData, waveData } = audio;
   analyser.getByteFrequencyData(freqData);
   analyser.getFloatTimeDomainData(waveData);
 
-  // Fade previous frame to leave light trails.
-  c.globalCompositeOperation = "destination-out";
-  c.fillStyle = "rgba(0, 0, 0, 0.18)";
-  c.fillRect(0, 0, view.w, view.h);
-  c.globalCompositeOperation = "lighter";
+  let sum = 0;
+  for (let i = 0; i < waveData.length; i++) sum += waveData[i] * waveData[i];
+  const level = clamp(Math.sqrt(sum / waveData.length) * 3.5);
 
-  const hue = pitchHue(sound.displayMidi);
-  const vol = sound.displayVolume;
+  // Fast attack, slow release, so swells hit instantly and fade smoothly.
+  vis.energy = lerp(vis.energy, level, level > vis.energy ? 0.5 : 0.08);
+
+  let bass = 0;
+  for (let i = 0; i < 16; i++) bass += freqData[i];
+  vis.bass = bass / (16 * 255);
+
+  // A sudden jump in loudness above the running average fires a shockwave ring.
+  if (level - vis.avg > 0.15 && now - vis.lastRing > 180) {
+    vis.lastRing = now;
+    vis.rings.push({ r: Math.min(view.w, view.h) * 0.1, life: 1, hue: vis.hueShift + pitchHue(sound.midi) });
+  }
+  vis.avg = lerp(vis.avg, level, 0.05);
+
+  const psy = psychedelic();
+  vis.hueShift = (vis.hueShift + (psy ? 0.4 + vis.energy * 3.5 : 0)) % 360;
+  vis.spin += 0.002 + vis.energy * (psy ? 0.03 : 0.004);
+}
+
+// Run `draw` once per kaleidoscope segment, rotated (and alternately mirrored) around the center.
+// Segment 0 is the identity, so the original stays under the fingertip.
+function kaleidoscope(c, arms, draw) {
+  const cx = view.w / 2;
+  const cy = view.h / 2;
+  for (let k = 0; k < arms; k++) {
+    c.save();
+    c.translate(cx, cy);
+    c.rotate((k / arms) * Math.PI * 2);
+    if (k % 2 === 1) c.scale(-1, 1);
+    c.translate(-cx, -cy);
+    draw();
+    c.restore();
+  }
+}
+
+function drawEffects(now) {
+  const c = fxCtx;
+  const { freqData, waveData } = audio;
+  const psy = psychedelic();
+  const e = vis.energy;
+  const hue = (pitchHue(sound.displayMidi) + vis.hueShift) % 360;
   const cx = view.w / 2;
   const cy = view.h / 2;
   const base = Math.min(view.w, view.h) * 0.16;
 
-  let bass = 0;
-  for (let i = 0; i < 16; i++) bass += freqData[i];
-  bass /= 16 * 255;
-  const radius = base * (1 + bass * 0.5);
+  if (psy) {
+    // Feedback tunnel: last frame comes back slightly zoomed and twisted. Louder = faster, longer trails.
+    trailCtx.setTransform(1, 0, 0, 1, 0, 0);
+    trailCtx.clearRect(0, 0, trail.width, trail.height);
+    trailCtx.drawImage(fx, 0, 0);
 
-  // Radial spectrum: mirrored around the circle so it looks symmetric.
-  const bars = 96;
-  const usable = Math.floor(freqData.length * 0.35);
-  for (let i = 0; i < bars; i++) {
-    const v = freqData[Math.floor((i / bars) * usable)] / 255;
-    if (v < 0.02) continue;
-    const len = v * base * 1.4;
-    for (const side of [1, -1]) {
-      const a = -Math.PI / 2 + side * (i / bars) * Math.PI;
-      const cos = Math.cos(a);
-      const sin = Math.sin(a);
-      c.strokeStyle = `hsla(${(hue + i * 1.5) % 360}, 90%, ${45 + v * 25}%, ${0.25 + v * 0.6})`;
-      c.lineWidth = 3;
-      c.beginPath();
-      c.moveTo(cx + cos * radius, cy + sin * radius);
-      c.lineTo(cx + cos * (radius + len), cy + sin * (radius + len));
-      c.stroke();
-    }
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, fx.width, fx.height);
+    c.restore();
+
+    c.save();
+    c.globalAlpha = 0.84 + e * 0.12;
+    c.translate(cx, cy);
+    c.rotate(0.006 + e * 0.025 + sound.vibrato * 0.03);
+    const zoom = 1.008 + e * 0.045;
+    c.scale(zoom, zoom);
+    c.translate(-cx, -cy);
+    c.drawImage(trail, 0, 0, view.w, view.h);
+    c.restore();
+  } else {
+    c.globalCompositeOperation = "destination-out";
+    c.fillStyle = "rgba(0, 0, 0, 0.18)";
+    c.fillRect(0, 0, view.w, view.h);
   }
 
-  // Waveform ring.
-  c.strokeStyle = `hsla(${hue}, 100%, 70%, ${0.3 + vol * 0.7})`;
-  c.lineWidth = 2;
-  c.beginPath();
+  c.globalCompositeOperation = "lighter";
+  const radius = base * (1 + vis.bass * 0.5 + (psy ? e * 0.6 : 0));
+
+  // Center bloom that breathes with loudness.
+  if (psy && e > 0.02) {
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, radius * (1.2 + e * 2));
+    g.addColorStop(0, `hsla(${hue}, 100%, 70%, ${e * 0.35})`);
+    g.addColorStop(0.5, `hsla(${(hue + 60) % 360}, 100%, 50%, ${e * 0.15})`);
+    g.addColorStop(1, "hsla(0, 0%, 0%, 0)");
+    c.fillStyle = g;
+    c.fillRect(0, 0, view.w, view.h);
+  }
+
+  // Radial spectrum: a full rainbow wheel that spins faster when louder.
+  const bars = psy ? 120 : 96;
+  const usable = Math.floor(freqData.length * 0.35);
+  c.lineCap = "round";
+  for (let i = 0; i < bars; i++) {
+    const v = freqData[Math.floor(((i < bars / 2 ? i : bars - i) / (bars / 2)) * usable)] / 255;
+    if (v < 0.02) continue;
+    const len = v * base * (psy ? 1.2 + e * 1.8 : 1.4);
+    const a = (i / bars) * Math.PI * 2 + vis.spin;
+    const barHue = psy ? (hue + (i / bars) * 360) % 360 : (hue + i * 1.5) % 360;
+    c.strokeStyle = `hsla(${barHue}, 100%, ${45 + v * 25}%, ${0.25 + v * 0.6})`;
+    c.lineWidth = psy ? 2 + e * 5 : 3;
+    c.beginPath();
+    c.moveTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
+    c.lineTo(cx + Math.cos(a) * (radius + len), cy + Math.sin(a) * (radius + len));
+    c.stroke();
+  }
+
+  // Waveform mandala: several rotated copies of the live waveform.
+  const rings = psy ? 3 : 1;
   const step = 4;
   const n = Math.floor(waveData.length / step);
-  for (let i = 0; i <= n; i++) {
-    const s = waveData[(i * step) % waveData.length];
-    const a = (i / n) * Math.PI * 2;
-    const r = radius * 0.85 + s * base * 0.9;
-    const x = cx + Math.cos(a) * r;
-    const y = cy + Math.sin(a) * r;
-    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+  for (let j = 0; j < rings; j++) {
+    const offset = (j / rings) * Math.PI * 2 + vis.spin * (j % 2 ? -1 : 1);
+    const scale = 0.85 - j * 0.18;
+    c.strokeStyle = `hsla(${(hue + j * 120) % 360}, 100%, 70%, ${0.3 + e * 0.7})`;
+    c.lineWidth = psy ? 1.5 + e * 3 : 2;
+    c.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const s = waveData[(i * step) % waveData.length];
+      const a = (i / n) * Math.PI * 2 + offset;
+      const r = radius * scale + s * base * (psy ? 0.9 + e * 2 : 0.9);
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    c.closePath();
+    c.stroke();
   }
-  c.closePath();
-  c.stroke();
 
-  // Glowing orb at the source of the sound (pitch fingertip or pointer).
+  // Shockwave rings fired by sudden swells in volume.
+  for (let i = vis.rings.length - 1; i >= 0; i--) {
+    const ring = vis.rings[i];
+    ring.r += 6 + e * 14;
+    ring.life -= 0.02;
+    if (ring.life <= 0) { vis.rings.splice(i, 1); continue; }
+    c.strokeStyle = `hsla(${(ring.hue + (1 - ring.life) * 180) % 360}, 100%, 65%, ${ring.life * 0.8})`;
+    c.lineWidth = 8 * ring.life;
+    c.beginPath();
+    c.arc(cx, cy, ring.r, 0, Math.PI * 2);
+    c.stroke();
+  }
+
+  // Sound source: pitch fingertip or pointer.
   let source = null;
   if (pitchHand) source = toScreen(pitchHand.pts[8]);
   else if (pointer.down) source = { x: pointer.x * view.w, y: pointer.y * view.h };
 
+  const vol = sound.displayVolume;
   if (source && vol > 0.01) {
-    const wobble = sound.vibrato * 6 * Math.sin(now / 30);
-    const orbR = 10 + vol * 30 + bass * 20;
-    const grad = c.createRadialGradient(source.x + wobble, source.y, 0, source.x + wobble, source.y, orbR * 2.5);
-    grad.addColorStop(0, `hsla(${hue}, 100%, 85%, ${0.8 * vol + 0.2})`);
-    grad.addColorStop(0.4, `hsla(${hue}, 100%, 60%, ${0.4 * vol})`);
-    grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
-    c.fillStyle = grad;
-    c.beginPath();
-    c.arc(source.x + wobble, source.y, orbR * 2.5, 0, Math.PI * 2);
-    c.fill();
-
-    // Emit particles in proportion to volume.
-    const count = Math.round(vol * 5 + bass * 4);
+    const count = Math.round((vol * 4 + e * 6) * (psy ? 1 : 0.8));
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
-      const speed = 1 + Math.random() * 3 * (0.5 + vol);
+      const speed = 1 + Math.random() * 3 * (0.5 + e * 1.5);
       particles.push({
         x: source.x, y: source.y,
         vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - 0.5,
         life: 1,
-        decay: 0.01 + Math.random() * 0.02,
-        hue: (hue + (Math.random() - 0.5) * 40 + 360) % 360,
-        size: 1.5 + Math.random() * 3,
+        decay: 0.012 + Math.random() * 0.02,
+        hue: (hue + (Math.random() - 0.5) * 80 + 360) % 360,
+        size: 1.5 + Math.random() * 3 * (1 + e),
       });
     }
   }
@@ -484,13 +771,41 @@ function drawEffects(now) {
     p.vx *= 0.985;
     p.vy = p.vy * 0.985 - 0.02; // gentle upward drift
     p.life -= p.decay;
-    if (p.life <= 0) { particles.splice(i, 1); continue; }
-    c.fillStyle = `hsla(${p.hue}, 100%, 65%, ${p.life})`;
-    c.beginPath();
-    c.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-    c.fill();
+    if (p.life <= 0) particles.splice(i, 1);
   }
-  if (particles.length > 1500) particles.splice(0, particles.length - 1500);
+  if (particles.length > MAX_PARTICLES) particles.splice(0, particles.length - MAX_PARTICLES);
+
+  const drawSparks = () => {
+    for (const p of particles) {
+      c.fillStyle = `hsla(${(p.hue + vis.hueShift * 0.5) % 360}, 100%, 65%, ${p.life})`;
+      c.beginPath();
+      c.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      c.fill();
+    }
+  };
+
+  const drawOrb = () => {
+    if (!source || vol <= 0.01) return;
+    const wobble = sound.vibrato * 6 * Math.sin(now / 30);
+    const orbR = 10 + vol * 30 + vis.bass * 20 + (psy ? e * 25 : 0);
+    const ox = source.x + wobble;
+    const grad = c.createRadialGradient(ox, source.y, 0, ox, source.y, orbR * 2.5);
+    grad.addColorStop(0, `hsla(${hue}, 100%, 85%, ${0.8 * vol + 0.2})`);
+    grad.addColorStop(0.4, `hsla(${(hue + 40) % 360}, 100%, 60%, ${0.4 * vol})`);
+    grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+    c.fillStyle = grad;
+    c.beginPath();
+    c.arc(ox, source.y, orbR * 2.5, 0, Math.PI * 2);
+    c.fill();
+  };
+
+  if (psy) {
+    // Mirror the fingertip's sparks and orb around the center: the hand paints a mandala.
+    kaleidoscope(c, KALEIDO_ARMS, () => { drawSparks(); drawOrb(); });
+  } else {
+    drawSparks();
+    drawOrb();
+  }
 
   c.globalCompositeOperation = "source-over";
 }
@@ -514,6 +829,8 @@ function frame(now) {
   }
 
   updateControl(now);
+  updateTutorial(now);
+  measureAudio(now);
   drawBackground();
   drawEffects(now);
   updateHud();
@@ -557,9 +874,17 @@ ui.start.addEventListener("click", async () => {
 
   ui.intro.classList.add("hidden");
   requestAnimationFrame(frame);
+
+  // The tutorial needs live hand tracking; show it automatically on the first visit.
+  if (cameraOn && landmarker) {
+    ui.tutorialBtn.disabled = false;
+    if (!tutorialWasSeen()) startTutorial();
+  }
 });
 
 ui.wave.addEventListener("change", () => audio?.setWave(ui.wave.value));
+ui.tutorialBtn.addEventListener("click", startTutorial);
+ui.tutSkip.addEventListener("click", closeTutorial);
 
 function setPointer(e) {
   pointer.x = clamp(e.clientX / view.w);
@@ -575,6 +900,9 @@ fx.addEventListener("pointermove", setPointer);
 for (const type of ["pointerup", "pointercancel"]) {
   fx.addEventListener(type, () => { pointer.down = false; });
 }
+
+// Respect the OS "reduce motion" setting: start with the calmer visuals.
+if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) ui.psychedelic.checked = false;
 
 window.addEventListener("resize", resize);
 video.addEventListener("loadedmetadata", layoutVideo);

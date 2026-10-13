@@ -34,6 +34,8 @@
         </select>
       </label>
       <label class="check"><input type="checkbox" id="showCam" checked> Camera</label>
+      <label class="check"><input type="checkbox" id="psychedelic" checked> Psychedelic</label>
+      <button id="tutorialBtn" type="button" disabled>How to play</button>
     </div>
   </header>
 
@@ -45,6 +47,14 @@
   <div class="readout">
     <div id="note">–</div>
     <div id="freq">0 Hz</div>
+  </div>
+
+  <div id="tutorial" class="tutorial hidden" role="status" aria-live="polite">
+    <div id="tutStep" class="tut-step"></div>
+    <div id="tutTitle" class="tut-title"></div>
+    <div id="tutText" class="tut-text"></div>
+    <div class="tut-progress"><div id="tutBar"></div></div>
+    <button id="tutSkip" type="button">Skip tutorial</button>
   </div>
 
   <div id="intro" class="intro">
